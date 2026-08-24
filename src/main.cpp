@@ -541,9 +541,29 @@ static const Screen SCREENS[] = {
 static_assert(sizeof(SCREENS) / sizeof(SCREENS[0]) == SCREEN_COUNT,
               "SCREEN_COUNT must match SCREENS[]");
 
+// The IT8951 e-paper controller draws tens of mA even while the panel shows
+// a static image (the image itself needs no power), so it is put to sleep for
+// every light-sleep period and woken only when a frame is about to be drawn.
+// wakeup() runs a full re-init, hence the guard against redundant calls.
+static bool displayAsleep = false;
+
+static void displaySleep() {
+  if (displayAsleep) return;
+  M5.Display.sleep();
+  M5.Display.waitDisplay();
+  displayAsleep = true;
+}
+
+static void displayWake() {
+  if (!displayAsleep) return;
+  M5.Display.wakeup();
+  displayAsleep = false;
+}
+
 // Composes the whole frame off-screen, then pushes it in a single EPD refresh
 // so the panel never shows a partially drawn frame.
 static void drawScreen(const Screen& s, const Context& ctx) {
+  displayWake();
   M5GFX& d = M5.Display;
   d.setEpdMode(epd_mode_t::epd_quality);  // full refresh, no ghosting
 
@@ -583,6 +603,7 @@ static esp_sleep_wakeup_cause_t sleepFor(int seconds) {
   // Wait for the wheel to be released so we don't wake immediately
   while (readButton() != BTN_NONE) delay(10);
   delay(50);  // debounce
+  displaySleep();  // the shown image persists with the controller asleep
   // Light sleep can wake on any GPIO level, so all three wheel positions work
   for (gpio_num_t pin : BTN_PINS) gpio_wakeup_enable(pin, GPIO_INTR_LOW_LEVEL);
   esp_sleep_enable_gpio_wakeup();
@@ -590,7 +611,8 @@ static esp_sleep_wakeup_cause_t sleepFor(int seconds) {
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   wakeButton = (cause == ESP_SLEEP_WAKEUP_GPIO) ? captureButton() : BTN_NONE;
   for (gpio_num_t pin : BTN_PINS) gpio_wakeup_disable(pin);
-  M5.Display.wakeup();
+  // The display stays asleep here; drawScreen() wakes it only when a frame
+  // is actually drawn, so bounce wake-ups skip the slow IT8951 re-init.
   return cause;
 }
 
@@ -631,7 +653,10 @@ static int handleWake(esp_sleep_wakeup_cause_t cause) {
   // Refresh when the deadline is unknown/passed or the clock is invalid.
   long deadline = prefs.getLong(deadlineKey(screenIdx).c_str(), 0);
   bool due = (ctx.now == 0) || deadline == 0 || ctx.now >= deadline - 30;
-  if (dir == 0) due = true;  // timer wake, push or cold boot: always refresh
+  // Timer wake, cold boot or push: always refresh. A GPIO wake with no
+  // captured button (wheel bounce) deliberately does NOT force a refresh —
+  // it would burn a Wi-Fi fetch and a full EPD redraw on a phantom event.
+  if (cause != ESP_SLEEP_WAKEUP_GPIO || forceRefresh) due = true;
 
   int sleepS;
   if (due) {
@@ -661,6 +686,12 @@ void setup() {
     M5.Display.setRotation(M5.Display.getRotation() ^ 1);
   }
   for (gpio_num_t pin : BTN_PINS) pinMode(pin, INPUT_PULLUP);
+
+  // The GT911 touch controller on this unit never reports touches, yet it
+  // keeps scanning (a few mA, around the clock). Put it to sleep for good;
+  // the side wheel is the only input.
+  if (auto* tp = M5.Display.touch()) tp->sleep();
+
   prefs.begin("argentstars");
 }
 
