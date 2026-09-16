@@ -85,20 +85,28 @@ struct FetchResult {
   int retryAfterS = 0;  // suggested wait when !ok (0 = use default)
 };
 
+// The radio is the biggest load while awake, so poll the link finely rather
+// than in 500 ms steps (association typically takes 150-700 ms here), and
+// give up after 15 s: when the network is gone each attempt otherwise keeps
+// the radio scanning for 30 s every retry interval.
+static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
+
 static bool connectWifi() {
-  Serial.printf("Connecting to %s", WIFI_SSID);
+  Serial.printf("Connecting to %s\n", WIFI_SSID);
+  uint32_t start = millis();
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  for (int i = 0; i < 60 && WiFi.status() != WL_CONNECTED; ++i) {
-    delay(500);
-    Serial.print(".");
+  while (WiFi.status() != WL_CONNECTED &&
+         millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
+    delay(20);
   }
-  Serial.println();
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi connection failed");
     return false;
   }
-  Serial.printf("Connected, IP %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("Connected in %lu ms, IP %s\n",
+                (unsigned long)(millis() - start),
+                WiFi.localIP().toString().c_str());
   return true;
 }
 
@@ -597,11 +605,11 @@ static void displayWake() {
 }
 
 // Composes the whole frame off-screen, then pushes it in a single EPD refresh
-// so the panel never shows a partially drawn frame.
+// so the panel never shows a partially drawn frame. The frame is rendered
+// before the IT8951 is woken, so the controller runs only for the transfer
+// and the refresh itself.
 static void drawScreen(const Screen& s, const Context& ctx) {
-  displayWake();
   M5GFX& d = M5.Display;
-  d.setEpdMode(epd_mode_t::epd_quality);  // full refresh, no ghosting
 
   auto paint = [&](LovyanGFX& g) {
     g.fillScreen(TFT_WHITE);
@@ -614,11 +622,15 @@ static void drawScreen(const Screen& s, const Context& ctx) {
   canvas.setPsram(true);
   if (canvas.createSprite(d.width(), d.height())) {
     paint(canvas);
+    displayWake();
+    d.setEpdMode(epd_mode_t::epd_quality);  // full refresh, no ghosting
     d.startWrite();
     canvas.pushSprite(0, 0);
     d.endWrite();
     canvas.deleteSprite();
   } else {
+    displayWake();
+    d.setEpdMode(epd_mode_t::epd_quality);
     d.startWrite();
     paint(d);
     d.endWrite();
@@ -630,11 +642,15 @@ static void drawScreen(const Screen& s, const Context& ctx) {
 
 static String deadlineKey(int idx) { return String("next") + idx; }
 
+// millis() when the current wake-up (or boot) started, for the awake-time log.
+static uint32_t awakeSinceMs = 0;
+
 // Light-sleeps until the timer fires or the side switch is pushed.
 // Returns the wake-up cause.
 static esp_sleep_wakeup_cause_t sleepFor(int seconds) {
   if (seconds < 60) seconds = 60;
-  Serial.printf("Sleeping for %d s (side switch wakes early)\n", seconds);
+  Serial.printf("Sleeping for %d s after %lu ms awake (side switch wakes early)\n",
+                seconds, (unsigned long)(millis() - awakeSinceMs));
   Serial.flush();
   // Wait for the wheel to be released so we don't wake immediately
   while (readButton() != BTN_NONE) delay(10);
@@ -644,6 +660,7 @@ static esp_sleep_wakeup_cause_t sleepFor(int seconds) {
   for (gpio_num_t pin : BTN_PINS) gpio_wakeup_enable(pin, GPIO_INTR_LOW_LEVEL);
   esp_sleep_enable_gpio_wakeup();
   M5.Power.lightSleep((uint64_t)seconds * 1000000ULL, /*touch_wakeup=*/false);
+  awakeSinceMs = millis();
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   wakeButton = (cause == ESP_SLEEP_WAKEUP_GPIO) ? captureButton() : BTN_NONE;
   for (gpio_num_t pin : BTN_PINS) gpio_wakeup_disable(pin);
