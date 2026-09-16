@@ -86,10 +86,10 @@ struct FetchResult {
 };
 
 // The radio is the biggest load while awake, so poll the link finely rather
-// than in 500 ms steps (association typically takes 150-700 ms here), and
-// give up after 15 s: when the network is gone each attempt otherwise keeps
-// the radio scanning for 30 s every retry interval.
-static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
+// than in 500 ms steps (association typically takes 150-700 ms here). The
+// timeout stays generous: a WPA handshake timeout alone costs ~10 s before
+// the driver's reconnect succeeds.
+static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
 
 static bool connectWifi() {
   Serial.printf("Connecting to %s\n", WIFI_SSID);
