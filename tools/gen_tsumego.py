@@ -7,7 +7,7 @@ from Cho Chikun's "Encyclopedia of Life and Death - Elementary":
 
     cd Tsumego/tsumego-pdf
     cargo run --release --bin tsumego-pdf -- books/cho-1-elementary.pdf -o cho.zip
-    ../../argentstars/tools/gen_tsumego.py cho.zip
+    ../../SpyDisplay/tools/gen_tsumego.py cho.zip
 
 Each problem is a single-root SGF with AB[]/AW[] setup stones in the top-left
 corner. The header stores, per entry, the book's problem number and the

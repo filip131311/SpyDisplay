@@ -1,4 +1,4 @@
-// argentstars — M5Paper e-ink dashboard with several screens (side wheel switches them):
+// SpyDisplay — M5Paper e-ink dashboard with several screens (side wheel switches them):
 //   0. GitHub star count of a repository (refreshed hourly)
 //   1. Countdown of days until a target date (refreshed at local midnight)
 //   2. Static "AI-Native Company / Software Mansion" card
@@ -115,7 +115,7 @@ static FetchResult fetchFromApi() {
   client.setInsecure();  // desk gadget: skip CA validation
 
   HTTPClient http;
-  http.setUserAgent("argentstars-m5paper");
+  http.setUserAgent("spydisplay-m5paper");
   http.setTimeout(15000);
   const char* headerKeys[] = {"date", "etag", "x-ratelimit-remaining",
                               "x-ratelimit-reset"};
@@ -184,7 +184,7 @@ static FetchResult fetchFromHtml() {
   client.setInsecure();
 
   HTTPClient http;
-  http.setUserAgent("Mozilla/5.0 (compatible; argentstars-m5paper)");
+  http.setUserAgent("Mozilla/5.0 (compatible; spydisplay-m5paper)");
   http.setTimeout(20000);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   const char* headerKeys[] = {"date"};
@@ -715,7 +715,7 @@ void setup() {
   cfg.output_power = false;  // no EXT 5V boost: less load on a weak supply
   M5.begin(cfg);
   Serial.begin(115200);
-  Serial.printf("\nargentstars boot, reset reason %d\n", (int)esp_reset_reason());
+  Serial.printf("\nSpyDisplay boot, reset reason %d\n", (int)esp_reset_reason());
 
   // Panel is portrait-native; we want landscape
   if (M5.Display.width() < M5.Display.height()) {
@@ -728,7 +728,7 @@ void setup() {
   // the side wheel is the only input.
   if (auto* tp = M5.Display.touch()) tp->sleep();
 
-  prefs.begin("argentstars");
+  prefs.begin("spydisplay");
 }
 
 void loop() {

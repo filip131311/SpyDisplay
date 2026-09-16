@@ -1,4 +1,4 @@
-# argentstars
+# SpyDisplay
 
 M5Paper e-ink dashboard with several screens:
 
